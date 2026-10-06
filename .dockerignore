@@ -1,0 +1,27 @@
+# Build context hygiene. Secrets and local-only source must never be sent to the
+# daemon — compose reads env_file from the host at runtime, not from here.
+
+node_modules
+dist
+
+# Never bake secrets into a layer.
+.env
+.env.*
+!.env.example
+
+# Frontend source is local-only; the built output in ./public is what ships.
+frontend
+
+.git
+.gitignore
+.commandcode
+.vscode
+
+# Not needed to build or run the image.
+drizzle
+biome.json
+mcp.json
+README.md
+*.rar
+
+npm-debug.log*

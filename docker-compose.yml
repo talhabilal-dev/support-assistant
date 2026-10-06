@@ -1,0 +1,75 @@
+# Support Assistant — production compose.
+#
+# On the VPS:
+#   1. put the environment file next to this file (default name: .env)
+#   2. docker compose up -d --build
+#
+# The env file lives only on the host: compose reads it at runtime, and
+# .dockerignore keeps it out of the build context, so it is never baked into an
+# image layer. Point elsewhere with ENV_FILE=/etc/support-assistant.env.
+#
+# Migrations are not run here (the runtime image has production dependencies
+# only, so drizzle-kit is absent). Apply them before starting a new image:
+#   pnpm exec drizzle-kit migrate
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: support-assistant:latest
+    restart: unless-stopped
+    # Reaps zombies and forwards signals, so the app's graceful shutdown runs.
+    init: true
+    env_file:
+      - ${ENV_FILE:-.env}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    # Long-lived SSE streams plus a 5s force-close need room on SIGTERM.
+    stop_grace_period: 20s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          'fetch("http://127.0.0.1:3000/health/ready").then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))',
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional local PostgreSQL with pgvector, if you would rather self-host the
+  # database than use Neon. Off by default — enable it explicitly:
+  #
+  #   docker compose --profile local-db up -d
+  #
+  # and in the env file use:
+  #   DATABASE_URL=postgresql://postgres:<password>@db:5432/support_assistant
+  #   DATABASE_SSL=false
+  db:
+    image: pgvector/pgvector:pg18
+    profiles: ["local-db"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-support_assistant}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      # Loopback only: never expose the database to the internet.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db-data:

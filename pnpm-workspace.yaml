@@ -1,7 +1,18 @@
-# pnpm settings for this project.
-# pnpm does not run dependency build scripts unless they are listed here, and a
-# fresh install (e.g. on a deploy host) fails with ERR_PNPM_IGNORED_BUILDS when
-# any were skipped. esbuild — pulled in by tsx and drizzle-kit — is the only
-# dependency in this tree that needs its install script.
-onlyBuiltDependencies:
-  - esbuild
+allowBuilds:
+  .: true
+  esbuild: true
+
+# pnpm 12 will not complete an install unless every dependency install script is
+# either approved above or explicitly skipped. On a fresh install — a deploy
+# host, CI, or an image build — it exits non-zero with ERR_PNPM_IGNORED_BUILDS
+# otherwise, because skipped builds are a failure by default.
+#
+# The block above is the form `pnpm approve-builds` writes: package name -> allow.
+# esbuild is the only dependency in this tree with an install script (pulled in
+# by tsx and drizzle-kit). If you add another one, add it here or re-run
+# `pnpm approve-builds`.
+#
+# Two settings that look right but are not:
+#   - the `pnpm` field in package.json: pnpm 12 ignores it (and warns)
+#   - `onlyBuiltDependencies`: not a setting in pnpm 12 — accepted in a config
+#     file without complaint, but it has no effect on the check.

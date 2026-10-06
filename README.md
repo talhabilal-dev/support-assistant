@@ -687,14 +687,15 @@ Your `DATABASE_URL` uses `sslmode=require`. It's emitted by `pg-connection-strin
 That's the env schema failing fast — the log names the offending variable. Check the required list above.
 
 **`ERR_PNPM_IGNORED_BUILDS: Ignored build scripts: esbuild@…` during `pnpm install`**
-pnpm doesn't run dependency install scripts unless they're allowlisted, and on a **fresh** install (a deploy host or CI) it exits non-zero when any were skipped. This repo ships the allowlist in `pnpm-workspace.yaml`:
+pnpm 12 fails a **fresh** install (deploy host, CI, image build) unless every dependency install script is approved or explicitly skipped. This repo ships the approval in `pnpm-workspace.yaml`, in the form `pnpm approve-builds` writes:
 
 ```yaml
-onlyBuiltDependencies:
-  - esbuild
+allowBuilds:
+  .: true
+  esbuild: true
 ```
 
-`esbuild` — pulled in by `tsx` and `drizzle-kit` — is the only dependency here that needs one. pnpm no longer reads the `pnpm` field in `package.json`, so putting the setting there is silently ignored (it warns). If you later add a dependency with an install script, add its name to this list.
+`esbuild` — pulled in by `tsx` and `drizzle-kit` — is the only dependency here with an install script. Two dead ends worth knowing: the `pnpm` field in `package.json` is ignored by pnpm 12 (it warns), and `onlyBuiltDependencies` is **not** a setting in pnpm 12 — it is accepted silently but has no effect on the check. If you add another dependency with an install script, add it to `allowBuilds` or re-run `pnpm approve-builds`.
 
 **`type "vector" does not exist`**
 The `pgvector` extension isn't installed/enabled on the database. Run `CREATE EXTENSION IF NOT EXISTS vector;` as a superuser, or enable it in your provider's dashboard.
