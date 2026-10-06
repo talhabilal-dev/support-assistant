@@ -1,0 +1,12 @@
+node_modules
+.env
+dist
+commandcode
+.vscode
+
+# Frontend source is intentionally not tracked; only the built static output
+# in ./public is pushed to the repo.
+frontend/
+
+# Agent/tooling config is local only.
+.commandcode/

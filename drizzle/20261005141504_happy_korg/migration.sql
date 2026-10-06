@@ -1,0 +1,2 @@
+ALTER TABLE "document_chunk" ADD COLUMN "content_tsv" tsvector GENERATED ALWAYS AS (to_tsvector('english', "content")) STORED;--> statement-breakpoint
+CREATE INDEX "document_chunk_content_tsv_idx" ON "document_chunk" USING gin ("content_tsv");
