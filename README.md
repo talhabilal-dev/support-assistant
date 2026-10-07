@@ -26,6 +26,7 @@ One person = one store. There is no separate "store" table: an authenticated `us
 - [Operations](#operations)
 - [Deployment checklist](#deployment-checklist)
 - [Troubleshooting](#troubleshooting)
+- [RAG accuracy evaluation](#rag-accuracy-evaluation)
 - [Scripts](#scripts)
 
 ---
@@ -720,6 +721,87 @@ Enable `LANGSMITH_TRACING` and look at the `crag-retrieval` trace: the `assess` 
 
 **`Database not found` after switching `OPENAI_EMBEDDING_MODEL` or dimensions**
 Embeddings from a different model aren't comparable. Re-ingest everything: `pnpm clear:vectors --yes`, then upload again.
+
+---
+
+## RAG accuracy evaluation
+
+A live, hand-judged evaluation of retrieval and grounding quality, run against the two
+sample policy PDFs (`talhabilaldev Discount Policy.pdf` and `talhabilaldev Return Policy.pdf`;
+6 chunks each) through `POST /api/v1/assistant/chat`. Each question was asked in a **fresh
+conversation** so no question benefits from another's history, and every reply was checked by
+hand against the source documents.
+
+**Setup:** `CHAT_MODEL=gpt-5.4-mini`, `PIPELINE_MODEL=gpt-5.4-mini`, `CRAG_MAX_REWRITES=1`,
+`RETRIEVAL_TOP_K=5`, `RETRIEVAL_CANDIDATES=12`.
+
+**Question set:** 25 questions — 20 in-scope questions that draw on one or both policies, plus
+5 *false-premise* questions that assert a wrong fact and should be corrected from the document.
+
+### Headline
+
+| Measure | Result |
+| --- | --- |
+| Fully correct in-scope answers | 16 / 20 (80%) |
+| Partially correct in-scope answers | 3 / 20 |
+| False escalations (document answers it, assistant refused) | 1 / 20 |
+| **Hallucinations** | **0 / 25** |
+| False-premise questions corrected | 4 / 5 (80%) |
+| Citation accuracy (of answered questions) | 24 / 24 (100%) — always the right document, never cross-cited |
+| Response time | answered 2.7–16.3 s · escalated 8.8 s |
+
+Grounding is intact: **no fabricated fact appeared in any answer**, and every answered question
+cited the correct source. This run is noticeably stronger than the earlier rounds (67%
+in-document accuracy across 70 questions in [round 1](./result.md) and [round 2](./result-2.md));
+the two likely reasons are `CRAG_MAX_REWRITES=1` (the corrective rewrite → re-retrieve loop those
+rounds recommended) and the newer `gpt-5.4-mini` models.
+
+### Per-question results
+
+Legend: ✅ correct · ⚠️ partial · ❌ wrong / false escalation.
+
+| # | Type | Question | Verdict |
+| --- | --- | --- | --- |
+| 1 | in-scope | Return a bundle case — allowed? how is the refund calculated? | ✅ |
+| 2 | in-scope | Seasonal tablet, then a flash-sale price drop — claim the difference? | ✅ |
+| 3 | in-scope | Opened device bought with a welcome code — what comes back, when? | ✅ |
+| 4 | in-scope | Defective item — who pays return shipping, replacement vs refund? | ❌ false escalation |
+| 5 | in-scope | Return shipped without an RA number, untracked — what applies? | ✅ |
+| 6 | in-scope | $45 cart vs a $50-minimum code; stacking with a bundle discount | ✅ |
+| 7 | in-scope | 12 units bulk discount + returning two unused accessories | ✅ |
+| 8 | in-scope | Student discount on a gift card; returning the gift card | ⚠️ partial |
+| 9 | in-scope | Opened earbuds, broken hygiene seal — still returnable? | ✅ |
+| 10 | in-scope | Referral credit expiry + applying it on top of a bundle discount | ✅ |
+| 11 | in-scope | Refund requested to a different payment method | ✅ |
+| 12 | in-scope | Reusing the one-time first-order code after an exchange | ✅ |
+| 13 | in-scope | Custom-built PC non-returnable + standard accessories | ✅ |
+| 14 | in-scope | Defect reported on day 10 — defect route and shipping cost | ⚠️ partial |
+| 15 | in-scope | Device prep before returning + active Find My Device lock | ✅ |
+| 16 | in-scope | $120 smartwatch bought with a newsletter code — refund amount/time | ✅ |
+| 17 | in-scope | Opened software returns + whether discounts apply to software | ⚠️ partial |
+| 18 | in-scope | Unopened return at 20 days — eligible? how fast is a refund? | ✅ |
+| 19 | in-scope | Unused accessories in original packaging + bundle refund recalc | ✅ |
+| 20 | in-scope | 3-week return delay + a price drop 5 days after ordering | ✅ |
+| 21 | false premise | "Seasonal sales go up to 30% off, right?" | ✅ corrected → 20% |
+| 22 | false premise | "I can use two promo codes on one order, correct?" | ✅ corrected → one |
+| 23 | false premise | "Referral credits expire after 30 days, correct?" | ✅ corrected → 90 days |
+| 24 | false premise | "Original shipping fees are always refunded, right?" | ✅ corrected → non-refundable unless our error/defective |
+| 25 | false premise | "Defective items can be reported within 14 days, right?" | ❌ answered "I don't know" (doc says 7 days) |
+
+### Where it missed
+
+- **#4 (false escalation).** "An item arrived defective — who pays return shipping, and can I choose a replacement?" The Return Policy answers this directly (§4 *Defective or Damaged Items*, §8 *Return Shipping Costs*), yet the assistant escalated. This is the one place the over-caution of the earlier rounds still shows.
+- **#14 (partial).** A defect reported on day 10 was treated as an ordinary 14-day return; the answer omitted the separate **7-day** defect-report window (§4).
+- **#17 (partial).** Opened software was correctly called non-returnable, but the second half ("do discounts apply to software?") was answered wrongly — software and digital licenses are **excluded from discounts** (§5 Exclusions), and the reply instead talked about refunds on discounted items.
+- **#8 (partial).** Gift cards were correctly called non-returnable, but the assistant said it did *not know* whether a student discount applies to a gift card; the exclusions section states discounts do not apply to gift cards.
+- **#25 (false premise not corrected).** "I have 14 days to report a defective item, right?" was met with "I don't know" even though the document states a 7-day defect-report window — a confidently unhelpful reply that also did not escalate.
+
+### Reproducing
+
+Questions were executed against `http://localhost:3000` with `storeSlug: 895111a2be64691b`
+(`GET /api/v1/assistant/demo-store` returns the same slug), one fresh conversation per question
+and ~1.5 s between requests to stay inside the chat rate limit. Answers were judged by hand
+against the two source PDFs, not by a model.
 
 ---
 
