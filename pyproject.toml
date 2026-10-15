@@ -1,0 +1,28 @@
+[project]
+name = "support-assistant"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Talha Bilal", email = "contact@talhabilal.dev" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "asyncpg>=0.32.0",
+    "fastapi>=0.143.0",
+    "langchain>=1.4.5",
+    "langchain-openai>=1.7.1",
+    "pgqueuer>=1.6.0",
+    "pypdf>=6.20.1",
+    "python-multipart>=0.0.32",
+    "resend>=2.49.1",
+    "sqlmodel>=0.0.48",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+support-assistant = "support_assistant:main"
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"
