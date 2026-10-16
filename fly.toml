@@ -1,0 +1,56 @@
+# Fly.io config — https://fly.io/docs/reference/configuration/
+#
+# One app, two process groups from the same image:
+#   fly scale count app=1 worker=1
+#
+# Secrets are NOT in this file:
+#   fly secrets set \
+#     DATABASE_URL="postgresql://..." \
+#     OPENAI_API_KEY="..." \
+#     RESEND_API_KEY="..." \
+#     EMAIL_FROM="Support <support@yourdomain.com>" \
+#     EMAIL_REPLY_TO="support@yourdomain.com"
+#
+# DATABASE_URL must point at a Postgres with pgvector available. Fly's own
+# Postgres image does not ship it — use a pgvector-capable provider (Neon,
+# Supabase, Render, ...) or bake the extension into your own cluster.
+
+app = "support-assistant"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "8000"
+  FRONTEND_DIST = "static"
+  RETRIEVAL_TOP_K = "8"
+  # CHAT_MODEL = "gpt-5.4-mini"
+
+[processes]
+  app = "support-assistant api"
+  worker = "support-assistant worker"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  # Chat responses stream over SSE — Fly handles this, but keep the check on a
+  # cheap endpoint rather than the chat route.
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "25s"
+    method = "GET"
+    path = "/api/health"
+
+# The worker holds a long-lived Postgres connection and must not be suspended.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["worker"]

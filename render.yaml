@@ -1,0 +1,56 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# Two services share one image: the API (public, serves the built frontend) and
+# the worker (no ports, processes PgQueuer jobs). Both are required — without
+# the worker, uploads never embed and ticket emails never send.
+
+databases:
+  - name: support-assistant-db
+    databaseName: support_assistant
+    user: support_assistant
+    plan: basic-256mb
+    postgresMajorVersion: "17"
+
+envVarGroups:
+  - name: support-assistant-shared
+    envVars:
+      # Non-secret defaults. Anything with `sync: false` is entered in the
+      # dashboard and never stored in the repo.
+      - key: HOST
+        value: 0.0.0.0
+      - key: FRONTEND_DIST
+        value: static
+      - key: RETRIEVAL_TOP_K
+        value: "8"
+      - key: CHAT_MODEL
+        value: gpt-5.4-mini
+        # ^ set to the model your OpenAI key/proxy actually serves
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false # e.g. Support <support@yourdomain.com> (Resend-verified)
+      - key: EMAIL_REPLY_TO
+        sync: false
+
+services:
+  - type: web
+    name: support-assistant-api
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - fromGroup: support-assistant-shared
+
+  - type: worker
+    name: support-assistant-worker
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerCommand: support-assistant worker
+    autoDeploy: true
+    envVars:
+      - fromGroup: support-assistant-shared

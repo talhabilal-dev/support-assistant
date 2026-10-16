@@ -103,6 +103,58 @@ Or with the module form: `uv run python -m support_assistant api|worker`.
 For frontend development with hot reload, run `pnpm dev` in `frontend/` (it
 proxies `/api` to the backend) and keep the API server running.
 
+## Deployment
+
+Deployment is config only — no code changes. Two processes must run: the API and
+the PgQueuer worker. Without the worker, uploads never embed and ticket emails
+never send.
+
+### Docker
+
+The `Dockerfile` is multi-stage: it builds the frontend (when `frontend/` is in
+the build context), installs Python deps with `uv`, and ships a slim runtime.
+
+```bash
+docker build -t support-assistant .
+docker run --env-file .env -p 8000:8000 support-assistant                        # API
+docker run --env-file .env support-assistant support-assistant worker            # worker
+```
+
+Because `frontend/` is gitignored, the build stage falls back to a committed
+`static/` — so a git-based builder works either way. To include the frontend
+source (e.g. `fly deploy` from your machine), make sure it is in the context;
+`.dockerignore` intentionally does not exclude it.
+
+### Render / Fly
+
+`render.yaml` defines the managed database plus an API and a worker service
+sharing one image. `fly.toml` does the same with two process groups:
+
+```bash
+fly secrets set DATABASE_URL=... OPENAI_API_KEY=... RESEND_API_KEY=... \
+  EMAIL_FROM='Support <support@yourdomain.com>' EMAIL_REPLY_TO=...
+fly deploy
+fly scale count app=1 worker=1
+```
+
+### Checklist
+
+- **Environment** — set `DATABASE_URL`, `OPENAI_API_KEY`, `RESEND_API_KEY`,
+  `EMAIL_FROM`, `EMAIL_REPLY_TO`, and `HOST=0.0.0.0`. `DATABASE_URL` and
+  `EMAIL_FROM` both have localhost/sandbox defaults, so a missing value fails
+  quietly rather than loudly. Do not ship `.env` (gitignored either way).
+- **Postgres with `pgvector`** — the DB user needs rights to run
+  `CREATE EXTENSION vector`; the rest of the schema is created on startup.
+- **Python 3.14** — pinned by `requires-python` and `.python-version`.
+- **Frontend** — run `pnpm build` (→ `static/`) before deploying, or let the
+  Dockerfile do it. Add the two policy PDFs to `frontend/public/` first if you
+  want the eval page's download links to resolve.
+- **Reverse proxy** — disable response buffering for SSE
+  (`proxy_buffering off;`) so chat answers stream token by token.
+- **Health check** — point the platform at `/api/health`.
+- **Watch out** — `RETRIEVAL_TOP_K` is set in the shell on the dev machine and
+  env vars override `.env`; set it explicitly in production.
+
 ## API
 
 | Method | Path | Description |
@@ -169,13 +221,31 @@ otherwise the query is simply saved.
 
 ## UI
 
-The React app (built to `static/`) has three tabbed views:
+The React app (built to `static/`) has four tabbed views:
 
 - **Home** — a gradient hero with quick links into the app.
 - **Chat** — streamed answers (token by token over SSE) with cited sources;
   problems raised here become tickets automatically.
 - **Documents** — upload the knowledge base and manage support tickets
   (send the Resend follow-up email, read the stored conversation).
+- **Eval** — a benchmark showcase: overall accuracy, per-category breakdown
+  (relevant / partially relevant / out of scope), a verdict strip for all 30
+  questions, and every question expandable to its expected answer, the app's
+  answer and the judge's note.
+
+### Eval showcase page
+
+The page renders `frontend/src/data/evalResults.json`, generated from the
+evaluation of `test.md` (see `result.md` for the full write-up). Two source
+documents are offered as downloads — drop them into `frontend/public/` as:
+
+```
+frontend/public/discount-policy.pdf
+frontend/public/return-policy.pdf
+```
+
+then rebuild (`pnpm build`) so they are copied into `static/`. The links point
+at `/discount-policy.pdf` and `/return-policy.pdf`.
 
 ## Extending
 

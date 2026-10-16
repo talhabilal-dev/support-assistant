@@ -54,7 +54,7 @@ class Settings(BaseSettings):
 
     # --- Retrieval (hybrid search) --------------------------------------
     retrieval_candidates: int = 20  # per-arm candidates before fusion
-    retrieval_top_k: int = 5  # chunk count returned to the LLM
+    retrieval_top_k: int = 8  # chunk count returned to the LLM
     rrf_k: int = 60  # Reciprocal Rank Fusion constant
     min_vector_score: float = 0.0  # cosine similarity floor
 
